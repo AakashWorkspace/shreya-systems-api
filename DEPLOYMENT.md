@@ -51,7 +51,7 @@ shreya-frontend/         ← Deploy to Vercel
    postgresql://user:password@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=require
    ```
 4. Save this — it is your `DATABASE_URL`
-
+postgresql://neondb_owner:npg_VZDELA6cz7fB@ep-fancy-base-am4i4xt0.c-5.us-east-1.aws.neon.tech/neondb?sslmode=require
 ---
 
 ## PART 2 — Backend (Render — Free Tier)
@@ -91,7 +91,7 @@ In your Render service → **Environment** tab, add:
 | Key | Value |
 |-----|-------|
 | `DATABASE_URL` | `postgresql://user:pass@host/db?sslmode=require` ← from Neon |
-| `SECRET_KEY` | Any random 40+ char string (e.g. run `openssl rand -hex 32`) |
+| `SECRET_KEY` | Any random 40+ char string (e.g. run `openssl rand -hex 32`) | 
 | `ALLOWED_ORIGINS` | `https://your-app.vercel.app` (update after Vercel deploy) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `1440` |
 
