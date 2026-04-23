@@ -98,6 +98,8 @@ In your Render service → **Environment** tab, add:
 5. Click **Save Changes** → Render will deploy automatically
 6. Wait ~2 min → Copy your Render URL: `https://shreya-systems-api.onrender.com`
 
+https://shreya-systems-api.onrender.com
+
 > ⚠️ **Free Render Note:** The service sleeps after 15 min of inactivity. First request takes ~30s to wake. Consider using UptimeRobot (free) to ping /health every 10 min.
 
 ---

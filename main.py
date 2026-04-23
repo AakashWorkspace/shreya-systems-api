@@ -311,6 +311,44 @@ def create_quotation(
     return quotation
 
 
+@app.get("/api/quotations/next-number", tags=["Quotations"])
+def get_next_quote_number(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Return the next sequential quote number for the current month.
+    Format: SS/{FY}/{MM}{SEQ} e.g. SS/26-27/04001
+    """
+    now = datetime.now()
+    month = str(now.month).zfill(2)
+    year = now.year
+    if now.month >= 4:  # April onwards = new financial year
+        fy = f"{str(year)[-2:]}-{str(year + 1)[-2:]}"
+    else:
+        fy = f"{str(year - 1)[-2:]}-{str(year)[-2:]}"
+
+    prefix = f"SS/{fy}/{month}"
+
+    # Find all existing quotes with this month's prefix
+    existing = (
+        db.query(Quotation.quote_number)
+        .filter(Quotation.quote_number.like(f"{prefix}%"))
+        .all()
+    )
+
+    max_seq = 0
+    for (qn,) in existing:
+        try:
+            seq = int(qn[len(prefix):])
+            if seq > max_seq:
+                max_seq = seq
+        except (ValueError, IndexError):
+            pass
+
+    next_seq = str(max_seq + 1).zfill(3)
+    return {"quote_number": f"{prefix}{next_seq}"}
+
+
 @app.get("/api/quotations/{quote_id}", response_model=QuotationOut, tags=["Quotations"])
 def get_quotation(
     quote_id: int,
