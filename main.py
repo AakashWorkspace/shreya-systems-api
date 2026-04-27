@@ -153,12 +153,12 @@ class QuotationOut(BaseModel):
 
 # ── Health Check ──────────────────────────────────────────────────────────────
 
-@app.get("/", tags=["Health"])
+@app.api_route("/", methods=["GET", "HEAD"], tags=["Health"])
 def root():
     return {"status": "ok", "service": "Shreya Systems API", "version": "1.0.0"}
 
 
-@app.get("/health", tags=["Health"])
+@app.api_route("/health", methods=["GET", "HEAD"], tags=["Health"])
 def health():
     return {"status": "healthy"}
 
