@@ -318,12 +318,18 @@ def get_quotations(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    return (
+    rows = (
         db.query(Quotation)
         .filter(Quotation.user_id == current_user.id)
         .order_by(Quotation.date.desc())
         .all()
     )
+    results = []
+    for row in rows:
+        out = QuotationOut.model_validate(row)
+        out.terms = json.loads(row.terms_json) if row.terms_json else None
+        results.append(out)
+    return results
 
 
 @app.post("/api/quotations", response_model=QuotationOut, tags=["Quotations"], status_code=201)
