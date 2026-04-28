@@ -47,6 +47,7 @@ class Quotation(Base):
     sgst_amount = Column(Float, default=0.0)
     grand_total = Column(Float, default=0.0)
     status = Column(String(50), default="draft")  # draft, sent, accepted, rejected
+    terms_json = Column(Text, nullable=True)       # JSON-encoded custom terms dict
 
     owner = relationship("User", back_populates="quotations")
     items = relationship("QuotationItem", back_populates="quotation", cascade="all, delete-orphan")

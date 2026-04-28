@@ -1,6 +1,7 @@
+import json
 import os
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +20,46 @@ from auth import (
 
 # Create all tables
 Base.metadata.create_all(bind=engine)
+
+
+def _migrate_add_terms_json():
+    """Idempotent migration: add terms_json column if it doesn't exist yet."""
+    with engine.connect() as conn:
+        # SQLite
+        if "sqlite" in str(engine.url):
+            try:
+                conn.execute(
+                    __import__("sqlalchemy").text(
+                        "ALTER TABLE quotations ADD COLUMN terms_json TEXT"
+                    )
+                )
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
+        else:
+            # PostgreSQL — use DO $$ ... $$ block
+            try:
+                conn.execute(
+                    __import__("sqlalchemy").text(
+                        """
+                        DO $$
+                        BEGIN
+                            IF NOT EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_name='quotations' AND column_name='terms_json'
+                            ) THEN
+                                ALTER TABLE quotations ADD COLUMN terms_json TEXT;
+                            END IF;
+                        END $$;
+                        """
+                    )
+                )
+                conn.commit()
+            except Exception:
+                pass
+
+
+_migrate_add_terms_json()
 
 app = FastAPI(
     title="Shreya Systems Quotation API",
@@ -127,6 +168,7 @@ class QuotationCreate(BaseModel):
     grand_total: float = 0.0
     status: str = "draft"
     items: List[QuotationItemCreate] = []
+    terms: Optional[Dict[str, Any]] = None
 
 
 class QuotationOut(BaseModel):
@@ -146,6 +188,7 @@ class QuotationOut(BaseModel):
     grand_total: float
     status: str
     items: List[QuotationItemOut] = []
+    terms: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
@@ -294,11 +337,14 @@ def create_quotation(
         raise HTTPException(status_code=409, detail="Quote number already exists")
 
     items_data = quote_data.items
-    quote_dict = quote_data.model_dump(exclude={"items"})
+    quote_dict = quote_data.model_dump(exclude={"items", "terms"})
     if not quote_dict.get("date"):
         quote_dict["date"] = datetime.utcnow()
 
-    quotation = Quotation(**quote_dict, user_id=current_user.id)
+    # Serialize custom terms dict to JSON string for storage
+    terms_json = json.dumps(quote_data.terms) if quote_data.terms else None
+
+    quotation = Quotation(**quote_dict, user_id=current_user.id, terms_json=terms_json)
     db.add(quotation)
     db.flush()
 
@@ -308,7 +354,11 @@ def create_quotation(
 
     db.commit()
     db.refresh(quotation)
-    return quotation
+
+    # Deserialize terms_json back to dict before returning
+    response = QuotationOut.model_validate(quotation)
+    response.terms = json.loads(quotation.terms_json) if quotation.terms_json else None
+    return response
 
 
 @app.get("/api/quotations/next-number", tags=["Quotations"])
