@@ -22,44 +22,51 @@ from auth import (
 Base.metadata.create_all(bind=engine)
 
 
-def _migrate_add_terms_json():
-    """Idempotent migration: add terms_json column if it doesn't exist yet."""
+def _run_migrations():
+    """Idempotent migrations: add any missing columns."""
+    import sqlalchemy as _sa
+
+    migrations_sqlite = [
+        "ALTER TABLE quotations ADD COLUMN terms_json TEXT",
+        "ALTER TABLE quotations ADD COLUMN quote_name TEXT",
+    ]
+    migrations_pg = [
+        ("terms_json", "ALTER TABLE quotations ADD COLUMN terms_json TEXT"),
+        ("quote_name", "ALTER TABLE quotations ADD COLUMN quote_name TEXT"),
+    ]
+
     with engine.connect() as conn:
-        # SQLite
         if "sqlite" in str(engine.url):
-            try:
-                conn.execute(
-                    __import__("sqlalchemy").text(
-                        "ALTER TABLE quotations ADD COLUMN terms_json TEXT"
-                    )
-                )
-                conn.commit()
-            except Exception:
-                pass  # Column already exists
+            for stmt in migrations_sqlite:
+                try:
+                    conn.execute(_sa.text(stmt))
+                    conn.commit()
+                except Exception:
+                    pass  # Column already exists
         else:
-            # PostgreSQL — use DO $$ ... $$ block
-            try:
-                conn.execute(
-                    __import__("sqlalchemy").text(
-                        """
-                        DO $$
-                        BEGIN
-                            IF NOT EXISTS (
-                                SELECT 1 FROM information_schema.columns
-                                WHERE table_name='quotations' AND column_name='terms_json'
-                            ) THEN
-                                ALTER TABLE quotations ADD COLUMN terms_json TEXT;
-                            END IF;
-                        END $$;
-                        """
+            for col, stmt in migrations_pg:
+                try:
+                    conn.execute(
+                        _sa.text(
+                            f"""
+                            DO $$
+                            BEGIN
+                                IF NOT EXISTS (
+                                    SELECT 1 FROM information_schema.columns
+                                    WHERE table_name='quotations' AND column_name='{col}'
+                                ) THEN
+                                    {stmt};
+                                END IF;
+                            END $$;
+                            """
+                        )
                     )
-                )
-                conn.commit()
-            except Exception:
-                pass
+                    conn.commit()
+                except Exception:
+                    pass
 
 
-_migrate_add_terms_json()
+_run_migrations()
 
 app = FastAPI(
     title="Shreya Systems Quotation API",
@@ -154,6 +161,7 @@ class QuotationItemOut(BaseModel):
 
 class QuotationCreate(BaseModel):
     quote_number: str
+    quote_name: Optional[str] = None
     date: Optional[datetime] = None
     client_name: Optional[str] = None
     client_address: Optional[str] = None
@@ -174,6 +182,7 @@ class QuotationCreate(BaseModel):
 class QuotationOut(BaseModel):
     id: int
     quote_number: str
+    quote_name: Optional[str] = None
     date: datetime
     client_name: Optional[str]
     client_address: Optional[str]
@@ -418,7 +427,57 @@ def get_quotation(
     )
     if not quote:
         raise HTTPException(status_code=404, detail="Quotation not found")
-    return quote
+    response = QuotationOut.model_validate(quote)
+    response.terms = json.loads(quote.terms_json) if quote.terms_json else None
+    return response
+
+
+@app.put("/api/quotations/{quote_id}", response_model=QuotationOut, tags=["Quotations"])
+def update_quotation(
+    quote_id: int,
+    quote_data: QuotationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    quote = (
+        db.query(Quotation)
+        .filter(Quotation.id == quote_id, Quotation.user_id == current_user.id)
+        .first()
+    )
+    if not quote:
+        raise HTTPException(status_code=404, detail="Quotation not found")
+
+    # Check for duplicate quote_number (allow same number if it's this quote)
+    if quote_data.quote_number != quote.quote_number:
+        existing = db.query(Quotation).filter(Quotation.quote_number == quote_data.quote_number).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="Quote number already exists")
+
+    items_data = quote_data.items
+    quote_dict = quote_data.model_dump(exclude={"items", "terms"})
+    if not quote_dict.get("date"):
+        quote_dict["date"] = quote.date  # preserve original date if not supplied
+
+    for k, v in quote_dict.items():
+        setattr(quote, k, v)
+
+    quote.terms_json = json.dumps(quote_data.terms) if quote_data.terms else None
+
+    # Replace all items
+    for old_item in quote.items:
+        db.delete(old_item)
+    db.flush()
+
+    for item_data in items_data:
+        qi = QuotationItem(**item_data.model_dump(), quotation_id=quote.id)
+        db.add(qi)
+
+    db.commit()
+    db.refresh(quote)
+
+    response = QuotationOut.model_validate(quote)
+    response.terms = json.loads(quote.terms_json) if quote.terms_json else None
+    return response
 
 
 @app.delete("/api/quotations/{quote_id}", tags=["Quotations"])

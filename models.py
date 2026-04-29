@@ -34,6 +34,7 @@ class Quotation(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     quote_number = Column(String(100), unique=True, index=True, nullable=False)
+    quote_name = Column(String(300), nullable=True)   # client-defined display name
     date = Column(DateTime, default=datetime.utcnow)
     client_name = Column(String(200), nullable=True)
     client_address = Column(Text, nullable=True)
