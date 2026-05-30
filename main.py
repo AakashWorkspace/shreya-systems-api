@@ -324,6 +324,8 @@ def delete_item(
 
 @app.get("/api/quotations", response_model=List[QuotationOut], tags=["Quotations"])
 def get_quotations(
+    limit: int = Query(50, le=200, description="Max results to return"),
+    offset: int = Query(0, ge=0, description="Number of results to skip"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -331,6 +333,8 @@ def get_quotations(
         db.query(Quotation)
         .filter(Quotation.user_id == current_user.id)
         .order_by(Quotation.date.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
     results = []
